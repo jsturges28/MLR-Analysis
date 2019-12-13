@@ -1,0 +1,273 @@
+---
+title: "Basketball Analysis"
+author: "Jacob Sturges"
+date:  "11/6/2019"
+output:
+  html_document:
+    code_folding: show
+    csl: biomed-central.csl
+    df_print: paged
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 7
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+   
+  word_document:
+    toc: yes
+    toc_depth: 4
+  pdf_document:
+    df_print: kable
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 7
+    highlight: tango
+    toc: yes
+    toc_depth: 4
+abstract: This a sample Multiple Linear Regression analysis on a basketball data set that I pulled online. The goal here is to explore how certain variables explain the amount of points a basketball player is capable of scoring, and how influential they are.
+
+---
+
+<center>
+
+![Chris Paul](chrispaul.jpg "Chris Paul")
+
+</center>
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(s20x)
+library(car)
+library(rgl)
+library(readxl)
+```
+
+# Introduction
+
+Professional sports organizations have been increasingly employing statisticians to collect data pertaining to their respective sports and players in order to gain a competitve advantage. For example, how important would the height of a player be for determining how many rebounds a team would gain? We will look at a simple dataset for 54 basketball players.
+
+
+## What are the variables? 
+
+The variables represent the statistics collected, which include, Height, Weight, Field Goal Percentage (FGPCT), Free Throw Percentage (FTPCT), and Points Scored (PTS).
+
+```{r basketball}
+basketball = read.csv("BASKETBALL.csv")
+names(basketball) = c("Height", "Weight", "FGPCT", "FTPCT", "PTS")
+basketball
+```
+
+```{r baketballnames}
+names(basketball)
+```
+
+### Plot data
+
+This is a sample plot to see how Height correlates with points scored:
+
+```{r}
+library(ggplot2)
+g = ggplot(basketball, aes(x = Height, y = PTS, color = "red")) + geom_point()
+g = g + geom_smooth(method = "loess")
+g
+```
+
+
+## How were the data collected? 
+
+The data were collected from http://college.cengage.com/mathematics/brase/understandable_statistics/7e/students/datasets/mlr/frames/frame.html using The official NBA basketball Encyclopedia, Villard Books.
+
+## Why was it gathered?
+
+These are sample data for a few basic statistics outlining 54 players in the NBA. The data was likely gathered as a reference for MLR to practice on.
+
+## What is your interest in the data?
+
+I would like to see how I can employ MLR to sports, I find it quite interesting to see things that may not be immediately obvious. 
+
+## What problem do you wish to solve?
+
+The main problem I would like to solve is how well Points Scored (Y) is explained by all of these variables, and if so, which one of these varaibles are most explanatory for the amount of Points Scored.
+
+# Model selection
+
+I will first start out by incorporating all of the variables given in the data frame, forming a first-order linear model of the form:
+
+$\hat{y}=\beta_1x_1+\beta_2x_2+\beta_3x_3+\beta_4x_4$.
+
+I will then employ stepwise regression to achieve the lowest AIC in order to see which variables of the model need to be removed. I will also use interaction plots to detect any interaction within the model and add interaction terms accordingly (if applicable).
+
+## AIC
+
+I will be using a backward elimination using the step() function in order to determine the model with the lowest AIC (Akaike information criterion), then I will select that model and refit the linear model by deleting the least significant variable. AIC measures the relative amount of information lost by a given model, so the lower AIC, the better.
+
+```{r}
+y.lm = lm(PTS ~ Height + Weight + FGPCT + FTPCT, data = basketball)
+step(y.lm, direction = "backward")
+```
+
+The step() function determined that there exists a lower AIC when I delete "Weight" as a variable. I will now refit the model with the "Weight" variable removed. 
+
+## First normality check for residuals within the model
+
+We will test the distribution of residuals to see if there needs to be any normalizing transformations to the model.
+
+```{r}
+normcheck(y.lm, shapiro.wilk = TRUE)
+```
+
+According to the check, the P-value associated with the W-statistic (normality), is very low ( < 0.05), which means with our current model, we reject the NULL that the residuals are normal and therefore we must employ a normalizing transformation to make the residuals approximately follow a normal distribution.
+
+I've decided to apply a normalizing transformation (by taking the log of Y) to better fit the residuals into a normal distribution.
+
+```{r}
+y.lm1 = lm(log(PTS) ~ Height + FGPCT + FTPCT, data = basketball)
+summary(y.lm1)
+```
+
+## VIF
+
+Checking the Variance Inflation Factor to check for multicollinearity. Large values (> 5) will be removed from the model.
+
+```{r}
+vif(y.lm1)
+```
+
+# Validity with mathematical expressions
+
+In order to check for validity, we must check for four assumptions on $\epsilon$:
+
+1. That the mean of epsilon is 0. $E(\epsilon)=0$
+
+   If we detect a pattern in the graph, i.e., a curvilinear trend, this indicates a misspecified model and will need to be    readjusted by adding more terms to the model.
+
+2. That the variance of epsilon is constant and equal to sigma-squared. $V(\epsilon)=\sigma^2,constant$
+
+   If the pattern in the graph is a cone shape or football shape, we need to employ a variance-stabilizing transformation    on y.
+
+3. That the errors are distributed normally.
+
+  If the data show a highly-skewed distribution, we will need to use a normalizing transformation on y.
+
+4. That the errors are independent.
+
+   We will need to make sure that there aren't any long-runs of positive residuals followed by long-runs of negative         residuals. If this occurs, we will use a time-series model that accounts for the residual correction.
+
+## Checks on validity
+
+We will employ these checks using the methods below and check for any aberrations. 
+
+### 1. Zero mean value of $\epsilon$
+
+To check for the assumtion of the mean of $\epsilon$ is 0 (1.), we plot the the residuals vs. each x in the model.
+
+$$\epsilon_i \sim N(0,\sigma^2)$$
+
+```{r}
+plot(residuals(y.lm1) ~ Height, data = basketball)
+abline(h=0)
+plot(residuals(y.lm1) ~ FGPCT, data = basketball)
+abline(h=0)
+plot(residuals(y.lm1) ~ FTPCT, data = basketball)
+abline(h=0)
+```
+
+The errors appear to be clustered uniformly around the mean of 0, which is what the mean should be for residuals.
+
+### 2. Constant variance
+
+To check for constant variance (2.), we plot the residuals vs. $\hat{y}$.
+
+```{r}
+plot(residuals(y.lm1) ~ PTS, data = basketball)
+abline(h=0)
+```
+
+### 3. Errors distributed Normally
+
+#### Second normality check with residuals + Shapiro-wilk
+
+Like the first time above, we check again to see if the residuals are distributed normally. 
+
+```{r}
+library(s20x)
+normcheck(y.lm1, shapiro.wilk = TRUE)
+```
+
+The errors are now distributed normally thanks to the normalizing correction technique I employed earlier. The NULL of W being high (normality) is now preserved and cannot be rejected due to the P-value being high ( > 0.05).
+
+### Independence of data 
+
+#### Residual vs fitted values
+
+```{r}
+plot(residuals(y.lm1) ~ fitted(y.lm1), data = basketball)
+```
+
+# Analysis of the data
+
+The data satisfy the four assumptions of $\epsilon$, so we don't need to employ any normalization techniques.
+
+## Plot of PTS vs. FTPCT + FGPCT
+
+We can only make use of the 'rgl' package up to 3 dimensions, so I picked out two of our point estimates "FTPCT" and "FGPCT" to plot against our response variable "PTS."
+
+```{r}
+scatter3d(PTS~FGPCT+FTPCT,basketball, fit=c("linear","quadratic"))
+rgl::rglwidget()
+```
+
+## Summary lm object
+
+```{r}
+summary(y.lm1)
+```
+
+### Interpretation of all tests
+
+The F-Statistic tells us that the ratio of SSR/SSE is rather high at 7.232 (ratio of the sum of squared residuals and sum of squared of errors) given a p-value << 0.05, which would mean that every $\beta$ point estimate contributes to the model as a whole. 
+
+### Interpretation of multiple R squared
+
+The multiple R-squared value of 0.3026 tells us that 30.26% of the variance is explained by the model.
+
+### Interpretation of all point estimates
+
+Height: Looking at the summary output, Height has an estimate of -0.4875. This means for every 1 unit increase in the response variable, PTS, we see a decrease of 0.4875 in the value of Height.
+
+FGPCT: Looking at the summary output, FGPCT has an estimate of 4.9108. This means for every 1 unit increase in the response variable, PTS, we see an increase of 4.9108 in the value of FGPCT.
+
+FTPCT: Looking at the summary output, FTPCT has an estimate of 0.9823. This means for every 1 unit increase in the response variable, PTS, we see an increase of 0.9823 in the value of FTPCT.
+
+## Calculate cis for $\beta$ parameter estimates
+
+We will use ciReg from the 's20x' package to determine the 95% confidence intervals for each $\beta$ parameter estimate.
+
+```{r}
+ciReg(y.lm1)
+```
+
+### Check on outliers using cooks plots
+
+We will use cooks20x to determine the Cook's Distance of all observations and see if there are any specific observations that would be overly influential. 
+
+```{r}
+cooks20x(y.lm1)
+```
+
+According to the Cook's Plot, Player 23 seemed to have a very unusual statline that influenced the data in the model the most. 
+
+# Conclusion
+
+The data given only reflected a small portion of the explained variance in the model, as suggested by the small R-squared value at 30%. The second $\beta$ estimate, FGPCT, was by far the largest of the estimates, which suggests that Field Goal Percentage has a very large influence on the amount of points scored by any player in a game, far greater than Height or Free Throw Percentage. The stepwise regression function determined that Weight would be enough of a nonfactor to not be included in the model, according to its lower AIC, and thus, we only had 3 variables to compare. There are very likely other variables that weren't gathered in the original data set that would add to the explained variance. 
+
+## Suggest ways to improve model or experiment
+
+We could have added interaction terms and made the model a second-order model, but I wanted to explore these variables in a first-order environment and determine if we needed more unknown variables that haven't been gathered in the original dataset. 
+
+
+  
